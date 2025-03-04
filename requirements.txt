@@ -1,0 +1,6 @@
+matplotlib
+rtmidi
+wakepy
+numpy
+argparse
+
