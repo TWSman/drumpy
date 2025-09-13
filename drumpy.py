@@ -15,6 +15,7 @@ import threading
 import plotille
 from argparse import ArgumentParser
 from pathlib import Path
+from icecream import ic
 
 
 from rtmidi.midiutil import open_midiinput
@@ -25,7 +26,7 @@ import matplotlib.animation as animation
 from matplotlib.animation import FuncAnimation
 
 log = logging.getLogger('midiin_poll')
-#logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig()
 
 
 timestamps = queue.Queue()
@@ -89,7 +90,7 @@ def data_generator(args):
         midiin.close_port()
     del midiin
 
-def get_tempo(t, y):
+def get_tempo(t, y, args):
     """
     Calculates tempo assuming that there are 2 hihat or ride hits per beat
 
@@ -106,19 +107,20 @@ def get_tempo(t, y):
     perc = np.percentile(dt, [10, 90])
     dt = dt[(dt > perc[0]) * (dt < perc[1])]
     dt = dt.mean()
-    T = dt * 2
+    T = dt * args.tmp
     bps = 1 / T
     bpm = bps * 60
     return np.round(bpm, decimals=-1)
 
 
-def test():
+def test(args):
     """
     Produces test data and draws the visualization with that
     """
-    hihat = np.arange(0,4,0.5)
-    bass = np.arange(0, 4, 2)
-    snare = np.arange(0, 4, 2) + 1
+    beats = args.bar
+    hihat = np.arange(0, beats, 0.5)
+    bass = np.arange(0, beats, 2)
+    snare = np.arange(0, beats, 2) + 1
     xx = np.concatenate([
         hihat,
         bass,
@@ -133,9 +135,9 @@ def test():
     yy = np.repeat(yy, 10)
     xx = np.repeat(xx, 10) + np.random.normal(0.0, scale=0.04, size=10 * len(xx))
 
-    draw_plotille(xx, yy)
+    draw_plotille(xx, yy, bar=args.bar)
 
-def draw_plotille(xx, y):
+def draw_plotille(xx, y, bar=4):
     """
     Draws the plotille visualization
     """
@@ -143,11 +145,11 @@ def draw_plotille(xx, y):
     fig.width = 90
     fig.height = 12
     fig.color_mode = 'byte'
-    for i in np.arange(0,4, 0.25):
+    for i in np.arange(0, bar, 0.25):
         fig.plot([i,i], [0,5], lc=8)
     fig.scatter(xx, y, lc=200)
-    fig.scatter(xx - 4, y, lc=25)
-    fig.set_x_limits(min_=-0.5, max_=4)
+    fig.scatter(xx - bar, y, lc=25)
+    fig.set_x_limits(min_=-0.5, max_=bar)
     fig.set_y_limits(min_=0, max_=6)
     print(fig.show())
 
@@ -161,18 +163,29 @@ def main():
     parser.add_argument("--test", action="store_true", help="Test mode for the visualization. Not interactive")
     parser.add_argument("--plotille", action="store_true", help="Use plotille instead of pyplot")
     parser.add_argument("-b", "--bpm", type=int, help="BPM to use. Leave empty to use tempo detection")
+    parser.add_argument("--bar", type=int, help="Beats in a bar", default=4)
+    parser.add_argument("--sub", type=int, help="Beat subdivision, Options are 2, 3, 4. Default 4", default=4)
     parser.add_argument("-o", "--output", type=Path, help="Create a video file. Note: You won't see the visualization")
     args = parser.parse_args()
 
     if args.test:
-        test()
+        test(args)
         return
-    threading.Thread(target=data_generator, daemon=True).start()
+    threading.Thread(target=data_generator, args=[args], daemon=True).start()
 
+    ic(args.bpm)
     bpm = args.bpm
     if bpm is None:
         bpm = 100
     bps = bpm / 60
+
+    if args.sub is None:
+        args.sub = 4
+
+    if args.sub != 3:
+        args.tmp = 2
+    else:
+        args.tmp = 3
 
     x_data, y_data = [], []
     if not args.plotille:
@@ -181,16 +194,29 @@ def main():
         line = ax.scatter([], [], ls="", marker="o", c=[], s=250, cmap="Greys", alpha=1, vmin=0, vmax=1)
         line2 = ax.scatter([], [], ls="", marker="o", c=[], s=250, cmap="Reds", alpha=1, vmin=0, vmax=1)
         # Set up the plot's appearance
-        ax.set_xlim(-0.5, 4.5)  # Initial x-axis limits
+        ax.set_xlim(-0.5, args.bar + 0.5)  # Initial x-axis limits
         ax.set_ylim(-1.5, 6.5)  # Initial y-axis limits
         ax.set_title("Real-Time Data Plot")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Value")
-        ax.set_xticks(np.arange(0,4.25,0.25), list("1e&a2e&a3e&a4e&a1"))
+        match args.sub:
+            case 4:
+                xticks = np.linspace(0, args.bar, args.bar * 4 + 1)
+                tick_labels = list("1e&a2e&a3e&a4e&a5e&a6e&a")[:len(xticks)-1] + ["1"]
+            case 2:
+                xticks = np.linspace(0, args.bar, args.bar * 2 + 1)
+                tick_labels = list("1&2&3&4&5&6&")[:len(xticks)-1] + ["1"]
+            case 3:
+                xticks = np.linspace(0, args.bar, args.bar * 3 + 1)
+                tick_labels = list("1&a2&a3&a4&a5&a6&a")[:len(xticks)-1] + ["1"]
+            case _:
+                raise ValueError("Unknown subdivision")
+        ax.set_xticks(xticks, tick_labels)
 
         ax.grid(True)
     else:
         fig = None
+
 
     # Initialize the line (called at the start of the animation)
     def init():
@@ -212,7 +238,7 @@ def main():
         if len(x_data) == 0:
             return []
         if args.bpm is None:
-            tempo = get_tempo(np.array(x_data), np.array(y_data))
+            tempo = get_tempo(np.array(x_data), np.array(y_data), args)
         else:
             tempo = None
 
@@ -241,8 +267,8 @@ def main():
 
         if len(x_data) == 0:
             return []
-        if args.bpm is not None:
-            tempo = get_tempo(np.array(x_data), np.array(y_data))
+        if args.bpm is None:
+            tempo = get_tempo(np.array(x_data), np.array(y_data), args)
         else:
             tempo = None
 
@@ -258,34 +284,44 @@ def main():
         i = 100 - np.arange(len(xx))[::-1]
         line.set_array(i / 100)
         line2.set_array(i / 100)
-
         return line, line2
 
     with keep.presenting():
         if not args.plotille:
+            save_thread = None
             if fig is None:
                 raise ValueError("figure hasn't been created")
             # Create the animation
             try:
                 ani = FuncAnimation(
-                    fig, update, init_func=init, blit=True, interval=1000/60,
+                    fig, update, init_func=init, blit=True, interval=1000/60, frames=300,
                 )
 
                 # Show the plot
                 if args.output is not None:
                     writervideo = animation.FFMpegWriter(fps=60)
-                    ani.save(args.output, writer=writervideo)
+
+                    def save_animation():
+                        ani.save(args.output, writer=writervideo)
+                    save_thread = threading.Thread(target=save_animation)
+                    save_thread.start()
+
                 plt.show()
+
+                if save_thread is not None:
+                    save_thread.join()
+
             except KeyboardInterrupt:
                 print('')
             finally:
-                plt.close()
                 print("Exit.")
+                plt.close()
+                if save_thread is not None:
+                    save_thread.join()
         else:
             while True:
                 update_plotille()
                 time.sleep(0.1)
-
 
 if __name__ == "__main__":
     main()
