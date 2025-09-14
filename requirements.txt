@@ -3,5 +3,7 @@ rtmidi
 wakepy
 numpy
 argparse
+icecream
+python-rtmidi
 sounddevice
 
