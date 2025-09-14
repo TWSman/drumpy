@@ -67,7 +67,7 @@ class Metronome:
 
         # Pre-generate sounds
         self.high_click = generate_click(frequency=1500)  # Beat 1
-        self.low_click = generate_click(frequency=1000)   # Other beats
+        self.low_click = generate_click(frequency=1000)  # Other beats
 
     def start(self):
         self.running = True
@@ -107,8 +107,8 @@ class Metronome:
 
 def metronome(args):
     # Pre-generate sounds
-    high_click = generate_click(frequency=1500)   # Beat 1
-    low_click = generate_click(frequency=1000)    # Other beats
+    high_click = generate_click(frequency=1500)  # Beat 1
+    low_click = generate_click(frequency=1000)  # Other beats
 
     beat_duration = 60.0 / args.bpm
 
@@ -136,7 +136,7 @@ def metronome(args):
         print("\nMetronome stopped.")
 
 
-def data_generator_old(args):
+def data_generator(args):
     # Prompts user for MIDI input port, unless a valid port number or name
     # is given as the first argument on the command line.
     # API backend defaults to ALSA on Linux.
@@ -264,9 +264,7 @@ def main():
     parser.add_argument(
         "--plotille", action="store_true", help="Use plotille instead of pyplot"
     )
-    parser.add_argument(
-        "--metro", action="store_true", help="Start metronome"
-    )
+    parser.add_argument("--metro", action="store_true", help="Start metronome")
     parser.add_argument(
         "-b", "--bpm", type=int, help="BPM to use. Leave empty to use tempo detection"
     )
@@ -295,7 +293,7 @@ def main():
             return
         m = Metronome(bpm=args.bpm, beats_per_measure=args.bar)
         m.start()
-    #threading.Thread(target=metronome, args=[args], daemon=True).start()
+    # threading.Thread(target=metronome, args=[args], daemon=True).start()
     threading.Thread(target=data_generator, args=[args], daemon=True).start()
 
     ic(args.bpm)
