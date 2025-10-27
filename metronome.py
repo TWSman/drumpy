@@ -120,6 +120,7 @@ class Metronome:
         self.samplerate = samplerate
         self.plot = plot_results
         self.logs = []
+        self.start_time = None
 
         # Pre-generate sounds
         self.high_click = generate_click(frequency=1500, samplerate=samplerate)  # Beat 1
@@ -129,6 +130,9 @@ class Metronome:
         self.running = True
         threading.Thread(target=self._run, daemon=True).start()
 
+    def get_start(self):
+        return self.start
+
     def stop(self):
         self.running = False
         if self.plot:
@@ -136,6 +140,7 @@ class Metronome:
 
     def set_bpm(self, bpm):
         with self.lock:
+            self.start_time = None
             self.bpm = bpm
 
     def _run(self):
@@ -153,6 +158,11 @@ class Metronome:
 
             self.logs.append(time.perf_counter())
             if beat == 1:
+                if self.start_time is None:
+                    self.start_time = time.perf_counter()
+                dt = time.perf_counter() - self.start_time
+                print(f"Beats since start: {dt / beat_duration}")
+                print(f"Measures since start: {dt / 4 / beat_duration}")
                 sd.play(self.high_click, samplerate=44100)
                 print(f"Beat 1 (BPM: {bpm})")
             else:

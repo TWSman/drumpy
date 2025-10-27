@@ -10,7 +10,6 @@ import numpy as np
 import queue
 import threading
 import plotille
-import sounddevice as sd
 from argparse import ArgumentParser
 from pathlib import Path
 from icecream import ic
@@ -44,7 +43,7 @@ translate = {
     # TODO    # Crash
 }
 
-metronome_start = None
+beat_zero = None
 
 def data_generator(args):
     # Prompts user for MIDI input port, unless a valid port number or name
@@ -58,10 +57,9 @@ def data_generator(args):
 
     print("Entering main loop. Press Control-C to exit.")
     i = 0
-    t0 = None
     tlast = None
     try:
-        timer = time.perf_counter()
+        timer = time.time()
         while True:
             i += 1
             msg = midiin.get_message()
@@ -71,15 +69,17 @@ def data_generator(args):
                 message, deltatime = msg
                 timer += deltatime
                 log.debug("[%s] @%0.6f %r" % (port_name, timer, message))
-                if message[0] == 153:
-                    if t0 is None:
-                        t0 = t
+                if message[0] == 153: # TODO document
+                    if beat_zero is None and args.metro is None:
+                        beat_zero = t
                     if message[1] in translate:
-                        timestamps.put(time.perf_counter() - t0)
+                        timestamps.put(time.perf_counter())
                         x1.put(translate[message[1]])
-                    if tlast is not None and t - tlast > 10:
+                    # Check if time from previous hit is over 10s 
+                    # Only needed when metronome is not in use
+                    if tlast is not None and t - tlast > 10 and args.metro is None:
                         print("Reset start time")
-                        t0 = t
+                        beat_zero = t
                     tlast = t
             time.sleep(0.01)
     except KeyboardInterrupt:
@@ -203,6 +203,8 @@ def main():
             return
         m = Metronome(bpm=args.bpm, beats_per_measure=args.bar)
         m.start()
+    else:
+        m = None
     # threading.Thread(target=metronome, args=[args], daemon=True).start()
     threading.Thread(target=data_generator, args=[args], daemon=True).start()
 
@@ -306,8 +308,8 @@ def main():
             x_data.append(timestamps.get())
             y_data.append(x1.get())
 
-            # Keep only the last 100 points for performance
-            if len(x_data) > 100:
+            # Keep only the last 50 points for performance
+            if len(x_data) > 50:
                 x_data.pop(0)
                 y_data.pop(0)
 
@@ -323,11 +325,16 @@ def main():
         else:
             a = bps
         logging.debug(f"{tempo=}")
+        # Get beat numbers compared to start beat
+        xx = ((np.array(x_data) - beat_zero) * a) % 4
+
         # Update the plot
-        xx = (np.array(x_data) * a) % 4
         line.set_offsets(list(zip(xx, y_data)))
         line2.set_offsets(list(zip(xx - 4, y_data)))
+
+        # Why?
         i = 100 - np.arange(len(xx))[::-1]
+        ic(i)
         line.set_array(i / 100)
         line2.set_array(i / 100)
         return line, line2
