@@ -112,7 +112,7 @@ class Metronome:
     """
     Improved metronome. Should keep time within 1ms
     """
-    def __init__(self, bpm=120, beats_per_measure=4, samplerate=44100, plot_results=False):
+    def __init__(self, bpm=120, beats_per_measure=4, samplerate=44100, plot_results=False, verbose=False):
         self.bpm = bpm
         self.beats_per_measure = beats_per_measure
         self.running = False
@@ -121,6 +121,7 @@ class Metronome:
         self.plot = plot_results
         self.logs = []
         self.start_time = None
+        self.verbose = verbose
 
         # Pre-generate sounds
         self.high_click = generate_click(frequency=1500, samplerate=samplerate)  # Beat 1
@@ -161,13 +162,16 @@ class Metronome:
                 if self.start_time is None:
                     self.start_time = time.perf_counter()
                 dt = time.perf_counter() - self.start_time
-                print(f"Beats since start: {dt / beat_duration}")
-                print(f"Measures since start: {dt / 4 / beat_duration}")
+                if self.verbose:
+                    print(f"Beats since start: {dt / beat_duration}")
+                    print(f"Measures since start: {dt / 4 / beat_duration}")
                 sd.play(self.high_click, samplerate=44100)
-                print(f"Beat 1 (BPM: {bpm})")
+                if self.verbose:
+                    print(f"Beat 1 (BPM: {bpm})")
             else:
                 sd.play(self.low_click, samplerate=44100)
-                print(f"Beat {beat} (BPM: {bpm})")
+                if self.verbose:
+                    print(f"Beat {beat} (BPM: {bpm})")
 
             next_beat_time += beat_duration
 
