@@ -24,7 +24,7 @@ import matplotlib.animation as animation
 from matplotlib.animation import FuncAnimation
 
 log = logging.getLogger("midiin_poll")
-logging.basicConfig()
+logging.basicConfig(level=logging.INFO)
 
 
 timestamps = queue.Queue()
@@ -43,7 +43,6 @@ translate = {
     # TODO    # Crash
 }
 
-beat_zero = None
 
 def data_generator(args):
     # Prompts user for MIDI input port, unless a valid port number or name
@@ -56,6 +55,7 @@ def data_generator(args):
         sys.exit()
 
     print("Entering main loop. Press Control-C to exit.")
+    beat_zero = args.beat_zero
     i = 0
     tlast = None
     try:
@@ -70,10 +70,11 @@ def data_generator(args):
                 timer += deltatime
                 log.debug("[%s] @%0.6f %r" % (port_name, timer, message))
                 if message[0] == 153: # TODO document
-                    if beat_zero is None and args.metro is None:
+                    if beat_zero is None and not args.metro:
+                        log.debug("Set beat zero to %d" % (t))
                         beat_zero = t
                     if message[1] in translate:
-                        timestamps.put(time.perf_counter())
+                        timestamps.put(time.perf_counter() - beat_zero)
                         x1.put(translate[message[1]])
                     # Check if time from previous hit is over 10s 
                     # Only needed when metronome is not in use
@@ -203,6 +204,8 @@ def main():
             return
         m = Metronome(bpm=args.bpm, beats_per_measure=args.bar)
         m.start()
+        args.beat_zero = m.start_time
+        ic(args.beat_zero)
     else:
         m = None
     # threading.Thread(target=metronome, args=[args], daemon=True).start()
@@ -326,7 +329,8 @@ def main():
             a = bps
         logging.debug(f"{tempo=}")
         # Get beat numbers compared to start beat
-        xx = ((np.array(x_data) - beat_zero) * a) % 4
+        #xx = ((np.array(x_data) - beat_zero) * a) % 4
+        xx = ((np.array(x_data) - 0) * a) % 4
 
         # Update the plot
         line.set_offsets(list(zip(xx, y_data)))
