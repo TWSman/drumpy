@@ -14,6 +14,7 @@ import sounddevice as sd
 from argparse import ArgumentParser
 from pathlib import Path
 from icecream import ic
+from metronome import Metronome
 
 
 from rtmidi.midiutil import open_midiinput
@@ -40,101 +41,10 @@ translate = {
     42: 4.5,  # hihat
     22: 4.5,  # hihat
     51: 5.5,  # ride
+    # TODO    # Crash
 }
 
 metronome_start = None
-
-
-def generate_click(frequency=1000, duration=0.05, volume=0.5, samplerate=44100):
-    """
-    Generate a short sine-wave click sound.
-    frequency: Hz
-    duration: seconds
-    volume: 0.0–1.0
-    """
-    t = np.linspace(0, duration, int(samplerate * duration), endpoint=False)
-    wave = volume * np.sin(2 * np.pi * frequency * t)
-    return wave.astype(np.float32)
-
-
-class Metronome:
-    def __init__(self, bpm=120, beats_per_measure=4):
-        self.bpm = bpm
-        self.beats_per_measure = beats_per_measure
-        self.running = False
-        self.lock = threading.Lock()
-        self.start_time = None
-
-        # Pre-generate sounds
-        self.high_click = generate_click(frequency=1500)  # Beat 1
-        self.low_click = generate_click(frequency=1000)  # Other beats
-
-    def start(self):
-        self.running = True
-        threading.Thread(target=self._run, daemon=True).start()
-
-    def stop(self):
-        self.running = False
-
-    def set_bpm(self, bpm):
-        with self.lock:
-            self.bpm = bpm
-
-    def _run(self):
-        beat = 1
-        while self.running:
-            with self.lock:
-                bpm = self.bpm
-            beat_duration = 60.0 / bpm
-            if self.start_time is None:
-                self.start_time = time.time()
-                ic(self.start_time)
-
-            if beat == 1:
-                sd.play(self.high_click, samplerate=44100)
-                print(f"Beat 1 (BPM: {bpm})")
-            else:
-                sd.play(self.low_click, samplerate=44100)
-                print(f"Beat {beat} (BPM: {bpm})")
-
-            sd.wait()
-            time.sleep(max(0, beat_duration - 0.05))
-
-            beat += 1
-            if beat > self.beats_per_measure:
-                beat = 1
-
-
-def metronome(args):
-    # Pre-generate sounds
-    high_click = generate_click(frequency=1500)  # Beat 1
-    low_click = generate_click(frequency=1000)  # Other beats
-
-    beat_duration = 60.0 / args.bpm
-
-    print(f"Metronome started: {args.bpm} BPM, {args.bar} beats/measure")
-    beat = 1
-    try:
-        while True:
-            if beat == 1:
-                sd.play(high_click, samplerate=44100)
-                print("Beat 1 (high click)")
-                if metronome_start is None:
-                    metronome_start = time.time()
-                    ic(metronome_start)
-            else:
-                sd.play(low_click, samplerate=44100)
-                print(f"Beat {beat}")
-
-            sd.wait()  # Ensure playback finishes
-            time.sleep(beat_duration - 0.05)  # subtract click duration
-
-            beat += 1
-            if beat > beats_per_measure:
-                beat = 1
-    except KeyboardInterrupt:
-        print("\nMetronome stopped.")
-
 
 def data_generator(args):
     # Prompts user for MIDI input port, unless a valid port number or name
@@ -151,11 +61,11 @@ def data_generator(args):
     t0 = None
     tlast = None
     try:
-        timer = time.time()
+        timer = time.perf_counter()
         while True:
             i += 1
             msg = midiin.get_message()
-            t = time.time()
+            t = time.perf_counter()
 
             if msg:
                 message, deltatime = msg
@@ -165,7 +75,7 @@ def data_generator(args):
                     if t0 is None:
                         t0 = t
                     if message[1] in translate:
-                        timestamps.put(time.time() - t0)
+                        timestamps.put(time.perf_counter() - t0)
                         x1.put(translate[message[1]])
                     if tlast is not None and t - tlast > 10:
                         print("Reset start time")

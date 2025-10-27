@@ -8,13 +8,88 @@ import threading
 import numpy as np
 import sounddevice as sd
 import matplotlib.pyplot as plt
+from icecream import ic
 
+
+def main():
+    m = Metronome(bpm=100, beats_per_measure=4)
+    m.start()
+
+    try:
+        while True:
+            user_input = input("Enter new BPM (or 'q' to quit): ")
+            if user_input.lower() == 'q':
+                break
+            try:
+                new_bpm = int(user_input)
+                m.set_bpm(new_bpm)
+                print(f"Tempo changed to {new_bpm} BPM")
+            except ValueError:
+                print("Please enter a valid number.")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        m.stop()
+        print("Metronome stopped.")
 
 def generate_click(frequency=1000, duration=0.05, volume=0.5, samplerate=44100):
-    """Generate a short sine-wave click sound."""
+    """
+    Generate a short sine-wave click sound.
+    frequency: Hz
+    duration: seconds
+    volume: 0.0–1.0
+    """
     t = np.linspace(0, duration, int(samplerate * duration), endpoint=False)
     wave = volume * np.sin(2 * np.pi * frequency * t)
     return wave.astype(np.float32)
+
+
+class MetronomeBasic:
+    def __init__(self, bpm=120, beats_per_measure=4):
+        self.bpm = bpm
+        self.beats_per_measure = beats_per_measure
+        self.running = False
+        self.lock = threading.Lock()
+        self.start_time = None
+
+        # Pre-generate sounds
+        self.high_click = generate_click(frequency=1500)  # Beat 1
+        self.low_click = generate_click(frequency=1000)  # Other beats
+
+    def start(self):
+        self.running = True
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def stop(self):
+        self.running = False
+
+    def set_bpm(self, bpm):
+        with self.lock:
+            self.bpm = bpm
+
+    def _run(self):
+        beat = 1
+        while self.running:
+            with self.lock:
+                bpm = self.bpm
+            beat_duration = 60.0 / bpm
+            if self.start_time is None:
+                self.start_time = time.time()
+                ic(self.start_time)
+
+            if beat == 1:
+                sd.play(self.high_click, samplerate=44100)
+                print(f"Beat 1 (BPM: {bpm})")
+            else:
+                sd.play(self.low_click, samplerate=44100)
+                print(f"Beat {beat} (BPM: {bpm})")
+
+            sd.wait()
+            time.sleep(max(0, beat_duration - 0.05))
+
+            beat += 1
+            if beat > self.beats_per_measure:
+                beat = 1
 
 
 def plot_results(t, bpm):
@@ -34,12 +109,16 @@ def plot_results(t, bpm):
     plt.savefig("metronome_timing.png")
 
 class Metronome:
-    def __init__(self, bpm=120, beats_per_measure=4, samplerate=44100):
+    """
+    Improved metronome. Should keep time within 1ms
+    """
+    def __init__(self, bpm=120, beats_per_measure=4, samplerate=44100, plot_results=False):
         self.bpm = bpm
         self.beats_per_measure = beats_per_measure
         self.running = False
         self.lock = threading.Lock()
         self.samplerate = samplerate
+        self.plot = plot_results
         self.logs = []
 
         # Pre-generate sounds
@@ -52,7 +131,8 @@ class Metronome:
 
     def stop(self):
         self.running = False
-        plot_results(self.logs, self.bpm)
+        if self.plot:
+            plot_results(self.logs, self.bpm)
 
     def set_bpm(self, bpm):
         with self.lock:
@@ -86,7 +166,10 @@ class Metronome:
                 beat = 1
 
 
-class Metronome2:
+class MetronomeSampling:
+    """
+    Should be a sample perfect metronome
+    """
     def __init__(self, bpm=120, beats_per_measure=4, samplerate=44100):
         self.samplerate = samplerate
         self.bpm = bpm
@@ -181,22 +264,5 @@ class Metronome2:
 
 
 if __name__ == "__main__":
-    m = Metronome(bpm=100, beats_per_measure=4)
-    m.start()
+    main()
 
-    try:
-        while True:
-            user_input = input("Enter new BPM (or 'q' to quit): ")
-            if user_input.lower() == 'q':
-                break
-            try:
-                new_bpm = int(user_input)
-                m.set_bpm(new_bpm)
-                print(f"Tempo changed to {new_bpm} BPM")
-            except ValueError:
-                print("Please enter a valid number.")
-    except KeyboardInterrupt:
-        pass
-    finally:
-        m.stop()
-        print("Metronome stopped.")
