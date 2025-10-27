@@ -3,4 +3,5 @@ rtmidi
 wakepy
 numpy
 argparse
+sounddevice
 
