@@ -6,4 +6,6 @@ argparse
 icecream
 python-rtmidi
 sounddevice
+keyboard
+plotille
 

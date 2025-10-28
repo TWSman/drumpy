@@ -10,9 +10,10 @@ import sounddevice as sd
 import matplotlib.pyplot as plt
 from icecream import ic
 
+sample_len = 0.05
 
 def main():
-    m = Metronome(bpm=100, beats_per_measure=4)
+    m = MetronomeSampling(bpm=100, beats_per_measure=4)
     m.start()
 
     try:
@@ -53,8 +54,8 @@ class MetronomeBasic:
         self.start_time = None
 
         # Pre-generate sounds
-        self.high_click = generate_click(frequency=1500)  # Beat 1
-        self.low_click = generate_click(frequency=1000)  # Other beats
+        self.high_click = generate_click(frequency=1500, duration=sample_len)  # Beat 1
+        self.low_click = generate_click(frequency=1000, duration=sample_len)  # Other beats
 
     def start(self):
         self.running = True
@@ -112,7 +113,7 @@ class Metronome:
     """
     Improved metronome. Should keep time within 1ms
     """
-    def __init__(self, bpm=120, beats_per_measure=4, samplerate=44100, plot_results=False, verbose=False):
+    def __init__(self, bpm=120, beats_per_measure=4, samplerate=44100, plot_results=False, verbose=False, x1=None, timestamps=None):
         self.bpm = bpm
         self.beats_per_measure = beats_per_measure
         self.running = False
@@ -122,6 +123,8 @@ class Metronome:
         self.logs = []
         self.start_time = None
         self.verbose = verbose
+        self.x1 = x1
+        self.timestamps = timestamps
 
         # Pre-generate sounds
         self.high_click = generate_click(frequency=1500, samplerate=samplerate)  # Beat 1
@@ -132,7 +135,7 @@ class Metronome:
         threading.Thread(target=self._run, daemon=True).start()
 
     def get_start(self):
-        return self.start
+        return self.start_time
 
     def stop(self):
         self.running = False
@@ -158,8 +161,13 @@ class Metronome:
                 time.sleep(max(0, next_beat_time - now))
 
             self.logs.append(time.perf_counter())
+
+            if self.start_time is not None and self.x1 is not None:
+                self.timestamps.put(time.perf_counter() - self.start_time)
+                self.x1.put(1.2)
             if beat == 1:
                 if self.start_time is None:
+                    print("Set metronome start")
                     self.start_time = time.perf_counter()
                 dt = time.perf_counter() - self.start_time
                 if self.verbose:

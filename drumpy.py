@@ -10,6 +10,7 @@ import numpy as np
 import queue
 import threading
 import plotille
+from pynput import keyboard
 from argparse import ArgumentParser
 from pathlib import Path
 from icecream import ic
@@ -42,6 +43,86 @@ translate = {
     51: 5.5,  # ride
     # TODO    # Crash
 }
+
+
+def data_generator_keyboard(args):
+    key_translate = {
+        'a': 4.5,
+        'b': 0.5,
+        's': 2.5,
+    }
+
+    print("Entering main loop. Press Control-C to exit.")
+    beat_zero = args.beat_zero
+    i = 0
+    tlast = None
+    running = True
+
+
+    # Storage
+    pressed_keys = []
+    timestamps_local = []
+
+
+    def on_press(key):
+        nonlocal beat_zero, tlast, running
+        t = time.perf_counter()
+        try:
+            # Convert key to a readable string
+            key_str = key.char if hasattr(key, "char") and key.char else str(key)
+
+            # Simulate a "note-on" equivalent
+            message = [153, ord(key_str[0]) if key_str and key_str.isprintable() else 0]
+            log.debug(f"[Keyboard] @ {t:.6f} {message}")
+
+            # Handle beat zero initialization
+            if beat_zero is None and not args.metro:
+                log.debug(f"Set beat zero to {t}")
+                beat_zero = t
+
+            # Store event time and mapped key
+            if key_str in key_translate:
+                timestamps.put(time.perf_counter() - beat_zero)
+                x1.put(key_translate[key_str])
+                ic(x1)
+            else:
+                timestamps_local.append(time.perf_counter() - beat_zero)
+                pressed_keys.append(key_str)
+
+            # Reset start time if idle > 10 s
+            if tlast is not None and t - tlast > 10 and args.metro is None:
+                print("Reset start time")
+                beat_zero = t
+            tlast = t
+
+        except Exception as e:
+            print("Error processing key:", e)
+            raise
+
+
+    # Define what happens when a key is released
+    def on_release(key):
+        nonlocal running
+        if key == keyboard.Key.esc:
+            running = False
+            return False  # stop listener
+
+    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+    listener.start()
+
+    try:
+        while running:
+            # Do other work here, like plotting or processing events
+            time.sleep(0.01)
+    except KeyboardInterrupt:
+        print("")
+    finally:
+        listener.stop()
+        plt.close()
+        print("Exit (keyboard test mode).")
+        print(f"Recorded {len(pressed_keys)} key presses.")
+        # Optionally return timestamps for plotting
+        return timestamps_local, pressed_keys
 
 
 def data_generator(args):
@@ -119,7 +200,7 @@ def test(args):
     """
     Produces test data and draws the visualization with that
     """
-    beats = args.bar
+    beats = args.beats
     hihat = np.arange(0, beats, 0.5)
     bass = np.arange(0, beats, 2)
     snare = np.arange(0, beats, 2) + 1
@@ -141,10 +222,10 @@ def test(args):
     yy = np.repeat(yy, 10)
     xx = np.repeat(xx, 10) + np.random.normal(0.0, scale=0.04, size=10 * len(xx))
 
-    draw_plotille(xx, yy, bar=args.bar)
+    draw_plotille(xx, yy, beats=args.beats)
 
 
-def draw_plotille(xx, y, bar=4):
+def draw_plotille(xx, y, beats=4):
     """
     Draws the plotille visualization
     """
@@ -152,11 +233,11 @@ def draw_plotille(xx, y, bar=4):
     fig.width = 90
     fig.height = 12
     fig.color_mode = "byte"
-    for i in np.arange(0, bar, 0.25):
+    for i in np.arange(0, beats, 0.25):
         fig.plot([i, i], [0, 5], lc=8)
     fig.scatter(xx, y, lc=200)
-    fig.scatter(xx - bar, y, lc=25)
-    fig.set_x_limits(min_=-0.5, max_=bar)
+    fig.scatter(xx - beats, y, lc=25)
+    fig.set_x_limits(min_=-0.5, max_=beats)
     fig.set_y_limits(min_=0, max_=6)
     print(fig.show())
 
@@ -168,7 +249,7 @@ def main():
     )
     parser.add_argument("-p", "--port", type=int, help="MIDI port to use")
     parser.add_argument(
-        "--test",
+        "--testv",
         action="store_true",
         help="Test mode for the visualization. Not interactive",
     )
@@ -179,7 +260,8 @@ def main():
     parser.add_argument(
         "-b", "--bpm", type=int, help="BPM to use. Leave empty to use tempo detection"
     )
-    parser.add_argument("--bar", type=int, help="Beats in a bar", default=4)
+    parser.add_argument("--beats", type=int, help="Beats in a bar", default=4)
+    parser.add_argument("--bars", type=int, help="How many bars to draw", default=2)
     parser.add_argument(
         "--sub",
         type=int,
@@ -192,6 +274,21 @@ def main():
         type=Path,
         help="Create a video file. Note: You won't see the visualization",
     )
+
+    parser.add_argument(
+        "-k",
+        "--keyboard",
+        action="store_true",
+        help="Read stuff from keyboard instead",
+    )
+
+    parser.add_argument(
+        "-t",
+        "--test",
+        action="store_true",
+        help="Testing mode",
+    )
+
     args = parser.parse_args()
 
     if args.test:
@@ -202,14 +299,22 @@ def main():
         if args.bpm is None:
             print("Must give tempo with metronome")
             return
-        m = Metronome(bpm=args.bpm, beats_per_measure=args.bar)
+        if args.test:
+            m = Metronome(bpm=args.bpm, beats_per_measure=args.beats, plot_results=True, x1=x1, timestamps=timestamps)
+        else:
+            m = Metronome(bpm=args.bpm, beats_per_measure=args.beats, plot_results=True)
         m.start()
-        args.beat_zero = m.start_time
+        time.sleep(0.1)
+        args.beat_zero = m.get_start()
         ic(args.beat_zero)
     else:
+        args.beat_zero = None
         m = None
     # threading.Thread(target=metronome, args=[args], daemon=True).start()
-    threading.Thread(target=data_generator, args=[args], daemon=True).start()
+    if args.keyboard:
+        threading.Thread(target=data_generator_keyboard, args=[args], daemon=True).start()
+    else:
+        threading.Thread(target=data_generator, args=[args], daemon=True).start()
 
     ic(args.bpm)
     bpm = args.bpm
@@ -228,8 +333,8 @@ def main():
     x_data, y_data = [], []
     if not args.plotille:
         # Create a figure and axis
-        fig, ax = plt.subplots(figsize=(15, 10))
-        line = ax.scatter(
+        fig, axs = plt.subplots(args.bars, 1, figsize=(15, 10))
+        line = [ax.scatter(
             [],
             [],
             ls="",
@@ -240,43 +345,53 @@ def main():
             alpha=1,
             vmin=0,
             vmax=1,
-        )
-        line2 = ax.scatter(
+        ) for ax in axs]
+        line2 = [ax.scatter(
             [], [], ls="", marker="o", c=[], s=250, cmap="Reds", alpha=1, vmin=0, vmax=1
-        )
+        ) for ax in axs]
         # Set up the plot's appearance
-        ax.set_xlim(-0.5, args.bar + 0.5)  # Initial x-axis limits
-        ax.set_ylim(-1.5, 6.5)  # Initial y-axis limits
-        ax.set_title("Real-Time Data Plot")
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Value")
+
         match args.sub:
             case 4:
-                xticks = np.linspace(0, args.bar, args.bar * 4 + 1)
-                tick_labels = list("1e&a2e&a3e&a4e&a5e&a6e&a")[: len(xticks) - 1] + [
+                xticks = np.linspace(0, args.bars * args.beats, args.bars * args.beats * 4 + 1)
+                tick_labels = args.bars * list("1e&a2e&a3e&a4e&a5e&a6e&a")[: args.beats * 4] + [
                     "1"
                 ]
             case 2:
-                xticks = np.linspace(0, args.bar, args.bar * 2 + 1)
-                tick_labels = list("1&2&3&4&5&6&")[: len(xticks) - 1] + ["1"]
+                xticks = np.linspace(0, args.beats, args.beats * 2 + 1)
+                tick_labels = args.bars * list("1&2&3&4&5&6&")[: args.beats * 2] + ["1"]
             case 3:
-                xticks = np.linspace(0, args.bar, args.bar * 3 + 1)
-                tick_labels = list("1&a2&a3&a4&a5&a6&a")[: len(xticks) - 1] + ["1"]
+                xticks = np.linspace(0, args.beats, args.beats * 3 + 1)
+                tick_labels = args.bars * list("1&a2&a3&a4&a5&a6&a")[: args.beats * 3] + ["1"]
             case _:
                 raise ValueError("Unknown subdivision")
-        ax.set_xticks(xticks, tick_labels)
+        for i,ax in enumerate(axs):
+            ax.set_xticks(xticks, tick_labels)
+            ax.grid(True)
+            ax.set_xlim(-0.5 + i * args.beats, (i + 1) * args.beats - 0.25 / 2)  # Initial x-axis limits
+            ax.set_ylim(-1.5, 6.5)  # Initial y-axis limits
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Value")
+            # Add measure divides
+            for i in range(0, args.bars + 1):
+                ax.axvline(i * args.beats - 1 / args.sub / 2, ls="-", color="k")
+        fig.tight_layout()
+        plt.subplots_adjust(wspace=0, hspace=0)
 
-        ax.grid(True)
     else:
+        line = None
+        line2 = None
         fig = None
 
     # Initialize the line (called at the start of the animation)
     def init():
-        line.set_offsets(np.empty((0, 2)))
-        line2.set_offsets(np.empty((0, 2)))
-        line.set_array(np.array([]))
-        line2.set_array(np.array([]))
-        return [line, line2]
+        for l in line:
+            l.set_offsets(np.empty((0, 2)))
+            l.set_array(np.array([]))
+        for l in line2:
+            l.set_offsets(np.empty((0, 2)))
+            l.set_array(np.array([]))
+        return [*line, *line2]
 
     def update_plotille():
         while not timestamps.empty():
@@ -330,18 +445,29 @@ def main():
         logging.debug(f"{tempo=}")
         # Get beat numbers compared to start beat
         #xx = ((np.array(x_data) - beat_zero) * a) % 4
-        xx = ((np.array(x_data) - 0) * a) % 4
+        # Multiply to get in beat units
+        xx = ((np.array(x_data) - 0) * a)
+        max_t = np.ceil(xx[-1] / args.beats) * args.beats
+        lim = (max_t - (args.bars - 0) * args.beats)
+        ic(xx[-1], max_t, lim)
+        mask = (xx > lim)
+        xx = xx[mask]
+
+        yy = np.array(y_data)[mask]
+        xx = xx % (4 * args.bars)
+
+        # Defines coloring
+        i = 100 - np.arange(len(xx))[::-1]
 
         # Update the plot
-        line.set_offsets(list(zip(xx, y_data)))
-        line2.set_offsets(list(zip(xx - 4, y_data)))
+        for l in line:
+            l.set_offsets(list(zip(xx, yy + i / 200)))
+            l.set_array(i / 100)
+        for l in line2:
+            l.set_offsets(list(zip(xx - 4 * args.bars, yy + i / 200)))
+            l.set_array(i / 100)
 
-        # Why?
-        i = 100 - np.arange(len(xx))[::-1]
-        ic(i)
-        line.set_array(i / 100)
-        line2.set_array(i / 100)
-        return line, line2
+        return [*line, *line2]
 
     with keep.presenting():
         if not args.plotille:
@@ -378,6 +504,8 @@ def main():
                 print("")
             finally:
                 print("Exit.")
+                if m is not None:
+                    m.stop()
                 plt.close()
                 if save_thread is not None:
                     save_thread.join()
