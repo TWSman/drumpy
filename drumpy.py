@@ -20,6 +20,7 @@ from metronome import Metronome
 from rtmidi.midiutil import open_midiinput
 from wakepy import keep
 
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.animation import FuncAnimation
@@ -291,7 +292,7 @@ def main():
 
     args = parser.parse_args()
 
-    if args.test:
+    if args.testv:
         test(args)
         return
 
@@ -305,7 +306,7 @@ def main():
             m = Metronome(bpm=args.bpm, beats_per_measure=args.beats, plot_results=True)
         m.start()
         time.sleep(0.1)
-        args.beat_zero = m.get_start()
+        args.beat_zero = m.get_start() - 0.125
         ic(args.beat_zero)
     else:
         args.beat_zero = None
@@ -334,6 +335,7 @@ def main():
     if not args.plotille:
         # Create a figure and axis
         fig, axs = plt.subplots(args.bars, 1, figsize=(15, 10))
+        cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["green","yellow","red"])
         line = [ax.scatter(
             [],
             [],
@@ -341,7 +343,8 @@ def main():
             marker="o",
             c=[],
             s=250,
-            cmap="Greys",
+            #cmap="Greys",
+            cmap=cmap,
             alpha=1,
             vmin=0,
             vmax=1,
@@ -366,15 +369,17 @@ def main():
             case _:
                 raise ValueError("Unknown subdivision")
         for i,ax in enumerate(axs):
-            ax.set_xticks(xticks, tick_labels)
-            ax.grid(True)
+            ax.set_xticks(xticks, tick_labels, minor=True)
+            ax.set_xticks(xticks[::4], tick_labels[::4], minor=False)
+            ax.xaxis.grid(True, which="major", linewidth=2, color="0.25")
+            ax.grid(True, which="minor")
             ax.set_xlim(-0.5 + i * args.beats, (i + 1) * args.beats - 0.25 / 2)  # Initial x-axis limits
             ax.set_ylim(-1.5, 6.5)  # Initial y-axis limits
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Value")
             # Add measure divides
             for i in range(0, args.bars + 1):
-                ax.axvline(i * args.beats - 1 / args.sub / 2, ls="-", color="k")
+                ax.axvline(i * args.beats - 1 / args.sub / 2, ls="-", color="r", linewidth=3)
         fig.tight_layout()
         plt.subplots_adjust(wspace=0, hspace=0)
 
@@ -456,16 +461,19 @@ def main():
         yy = np.array(y_data)[mask]
         xx = xx % (4 * args.bars)
 
-        # Defines coloring
-        i = 100 - np.arange(len(xx))[::-1]
+        # Defines coloring (color by age)
+        c = 100 - np.arange(len(xx))[::-1]
+
+        error = (0.5 + args.sub * xx) % 1 - 0.5
+        c = 5 * np.abs(error) / args.sub * 100
 
         # Update the plot
         for l in line:
-            l.set_offsets(list(zip(xx, yy + i / 200)))
-            l.set_array(i / 100)
+            l.set_offsets(list(zip(xx, yy)))
+            l.set_array(c / 100)
         for l in line2:
-            l.set_offsets(list(zip(xx - 4 * args.bars, yy + i / 200)))
-            l.set_array(i / 100)
+            l.set_offsets(list(zip(xx - 4 * args.bars, yy)))
+            l.set_array(c / 100)
 
         return [*line, *line2]
 

@@ -126,6 +126,8 @@ class Metronome:
         self.x1 = x1
         self.timestamps = timestamps
 
+        self.random_scale = 0.05
+
         # Pre-generate sounds
         self.high_click = generate_click(frequency=1500, samplerate=samplerate)  # Beat 1
         self.low_click = generate_click(frequency=1000, samplerate=samplerate)   # Other beats
@@ -163,7 +165,7 @@ class Metronome:
             self.logs.append(time.perf_counter())
 
             if self.start_time is not None and self.x1 is not None:
-                self.timestamps.put(time.perf_counter() - self.start_time)
+                self.timestamps.put(time.perf_counter() - self.start_time + (np.random.rand() - 0.5) * self.random_scale)
                 self.x1.put(1.2)
             if beat == 1:
                 if self.start_time is None:
